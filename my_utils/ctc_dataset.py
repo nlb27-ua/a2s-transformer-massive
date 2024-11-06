@@ -1,6 +1,7 @@
 import os
 import json
 import math
+import re
 
 import torch
 from torch.utils.data import Dataset
@@ -14,7 +15,7 @@ from my_utils.data_preprocessing import (
     set_pad_index,
 )
 
-DATASETS = ["quartets", "beethoven", "mozart", "haydn"]
+DATASETS = ["real_partitions", "massive_partition1k"]
 
 
 class CTCDataModule(LightningDataModule):
@@ -147,9 +148,9 @@ class CTCDataset(Dataset):
         self.X, self.Y = self.get_audios_and_transcripts_files()
 
         # Check and retrieve vocabulary
-        vocab_folder = os.path.join("Quartets", "vocabs")
+        vocab_folder = os.path.join("dataset", "vocab")
         os.makedirs(vocab_folder, exist_ok=True)
-        vocab_name = self.ds_name + f"_{vocab_name}"
+        vocab_name = f"{self.ds_name}_alto" + f"_{vocab_name}"
         vocab_name += "_withvc" if self.use_voice_change_token else ""
         vocab_name += ".json"
         self.w2i_path = os.path.join(vocab_folder, vocab_name)
@@ -184,15 +185,22 @@ class CTCDataset(Dataset):
         return torch.tensor(y, dtype=torch.int32)
 
     def get_audios_and_transcripts_files(self):
-        partition_file = f"Quartets/partitions/{self.ds_name}/{self.partition_type}.txt"
+        partition_file = f"{self.ds_name}/f1/{self.partition_type}.txt"
 
         audios = []
         transcripts = []
-        with open(partition_file, "r") as file:
+        with open("partitions/"+partition_file, "r") as file:
             for s in file.read().splitlines():
-                s = s.strip()
-                audios.append(f"Quartets/flac/{s}.flac")
-                transcripts.append(f"Quartets/krn/{s}.krn")
+                s = re.split("\.|\t",s)
+                s,ext = s[0], s[3]
+                if self.partition_type == "test":
+                    sa = "dataset/real/alto/" + s + ".wav"
+                    st = "dataset/krn/real/alto/" + s + "." + ext
+                else:
+                    sa = "dataset/saxopia/alto/" + s + ".wav"
+                    st = "dataset/krn/" + s + "." + ext
+                audios.append(sa)
+                transcripts.append(st)
         return audios, transcripts
 
     def check_and_retrieve_vocabulary(self):
@@ -213,12 +221,13 @@ class CTCDataset(Dataset):
     def make_vocabulary(self):
         vocab = []
         for partition_type in ["train", "val", "test"]:
-            partition_file = f"Quartets/partitions/{self.ds_name}/{partition_type}.txt"
+            partition_file = f"partitions/{self.ds_name}/f1/{partition_type}.txt"
             with open(partition_file, "r") as file:
                 for s in file.read().splitlines():
-                    s = s.strip()
+                    s = re.split("\.|\t",s)
+                    s,ext = s[0], s[3]
                     transcript = self.krn_parser.convert(
-                        src_file=f"Quartets/krn/{s}.krn"
+                        src_file=f"dataset/krn/real/alto/{s}.{ext}" if partition_type=="test" else f"dataset/krn/{s}.krn"
                     )
                     vocab.extend(transcript)
         vocab = sorted(set(vocab))
@@ -234,7 +243,7 @@ class CTCDataset(Dataset):
         return w2i, i2w
 
     def set_max_lens(self):
-        # Set the maximum lengths for the whole QUARTETS collection:
+        # Set the maximum lengths for the whole collection:
         # 1) Get the maximum transcript length
         # 2) Get the maximum audio length
         # 3) Get the frame multiplier factor so that
@@ -243,23 +252,23 @@ class CTCDataset(Dataset):
         max_seq_len = 0
         max_audio_len = 0
         max_frame_multiplier_factor = 0
-        for t in os.listdir("Quartets/krn"):
-            if t.endswith(".krn") and not t.startswith("."):
-                # Max transcript length
-                transcript = self.krn_parser.convert(
-                    src_file=os.path.join("Quartets/krn", t)
-                )
-                max_seq_len = max(max_seq_len, len(transcript))
-                # Max audio length
-                audio = preprocess_audio(
-                    path=os.path.join("Quartets/flac", t[:-4] + ".flac")
-                )
-                max_audio_len = max(max_audio_len, audio.shape[2])
-                # Max frame multiplier factor
-                max_frame_multiplier_factor = max(
-                    max_frame_multiplier_factor,
-                    math.ceil(((2 * len(transcript)) + 1) / audio.shape[2]),
-                )
+        wav_folder = "dataset/saxopia/alto/"
+        krn_folder = "dataset/krn/"
+        for partition_type in ["train", "val"]:
+            partition_file = f"partitions/{self.ds_name}/f1/{partition_type}.txt"
+            with open(partition_file, "r") as file:
+                for line in file.readlines():
+                    wav_file, krn_file = line.strip().split("\t")
+                    transcript = self.krn_parser.convert(src_file=krn_folder+krn_file)
+                    max_seq_len = max(max_seq_len, len(transcript))
+                    # Max audio length
+                    audio = preprocess_audio(path=wav_folder+wav_file)
+                    max_audio_len = max(max_audio_len, audio.shape[2])
+                    # Max frame multiplier factor
+                    max_frame_multiplier_factor = max(
+                        max_frame_multiplier_factor,
+                        math.ceil(((2 * len(transcript)) + 1) / audio.shape[2]),
+                            )
 
         self.max_seq_len = max_seq_len
         self.max_audio_len = max_audio_len

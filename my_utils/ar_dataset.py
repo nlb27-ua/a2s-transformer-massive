@@ -126,12 +126,12 @@ class ARDataset(CTCDataset):
     def make_vocabulary(self):
         vocab = []
         for partition_type in ["train", "val", "test"]:
-            partition_file = f"Quartets/partitions/{self.ds_name}/{partition_type}.txt"
+            partition_file = f"partitions/{self.ds_name}/f1/{partition_type}.txt"
             with open(partition_file, "r") as file:
                 for s in file.read().splitlines():
-                    s = s.strip()
+                    s = s.split(".")[0]
                     transcript = self.krn_parser.convert(
-                        src_file=f"Quartets/krn/{s}.krn"
+                        src_file=f"dataset/krn/real/alto/{s}.krn" if partition_type=="test" else f"dataset/krn/{s}.krn"
                     )
                     vocab.extend(transcript)
         vocab = [SOS_TOKEN, EOS_TOKEN] + vocab

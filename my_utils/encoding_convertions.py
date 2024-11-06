@@ -5,13 +5,16 @@ import numpy as np
 
 VOICE_CHANGE_TOKEN = "<COC>"
 STEP_CHANGE_TOKEN = "<COR>"
+SPACE_TOKEN = "<s>"
+TAB_TOKEN = "<t>"
+NLINE_TOKEN = "<n>"
 
 
 class krnParser:
     """Main Kern parser operations class."""
 
     def __init__(self, use_voice_change_token: bool = True) -> None:
-        self.reserved_words = ["clef", "k[", "*M"]
+        self.reserved_words = ["clef", "k[", "*M", SPACE_TOKEN, TAB_TOKEN, NLINE_TOKEN]
         self.reserved_dot = "."
         self.reserved_dot_EncodedCharacter = "DOT"
         self.clef_change_other_voices = "*"
@@ -32,19 +35,20 @@ class krnParser:
         while "**kern" not in in_src[it_headers]:
             it_headers += 1
         pass
-        columns_to_process = np.where(
-            np.array(in_src[it_headers].split("\t")) == "**kern"
-        )[0]
+        # columns_to_process = np.where(
+        #     np.array(in_src[it_headers].split("\t")) == "**kern"
+        # )[0]
 
         # Locating lines with comments (to be removed)
         in_src_nocomments = []
         for line in in_src:
             if not line.strip().startswith("!"):
-                in_src_nocomments.append(line.split("\t"))
+                in_src_nocomments.append(line)
         pass
 
         # Extract voices and removing lines with comments
-        out_src = np.array(in_src_nocomments)[:, columns_to_process]
+        out_src = np.array(in_src_nocomments)
+        # out_src = out_src[:, columns_to_process]
 
         return out_src
 
@@ -78,14 +82,14 @@ class krnParser:
 
         # Processing individual voices
         out_score = []
-        for it_voice in range(in_file.shape[1]):
-            in_voice = in_file[:, it_voice].tolist()
+        for it_voice in [1]:
+            in_voice = in_file[:].tolist()
             out_voice = [
-                self.cleanKernToken(u)
+                self.cleanKernLine(u)
                 for u in in_voice
-                if self.cleanKernToken(u) is not None
+                if self.cleanKernLine(u)
             ]
-
+            out_voice = [x for xs in out_voice for x in xs] #flatten
             out_score.append(out_voice)
         pass
         out_score = np.array(out_score)
@@ -94,6 +98,16 @@ class krnParser:
         out_score = self._postprocessKernSequence(out_score)
 
         return out_score
+    
+    def cleanKernLine(self, in_line: str) -> Union[str, None]:
+        out_line = [
+            self.cleanKernToken(u)
+            for u in in_line.replace(" ",f" {SPACE_TOKEN} ").replace("\t",F" {TAB_TOKEN} ").split(" ")
+            if self.cleanKernToken(u) is not None
+        ]
+        if out_line:
+            out_line.append(NLINE_TOKEN)
+        return out_line
 
     def cleanKernToken(self, in_token: str) -> Union[str, None]:
         """Convert a kern token to its CLEAN equivalent."""
